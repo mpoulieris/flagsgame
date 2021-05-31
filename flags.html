@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Βρες τους γείτονες</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.gstatic.com">
+    <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600&display=swap" rel="stylesheet">
+    <script src="countries.js"></script>
+    <script>
+        // will contain all country objects
+        const allCountries = new Array();
+        // fill the array of country objects
+        console.log(typeof allCountries);
+        countryObjects.forEach(country => {
+            //make this work in one step
+            allCountries.push(country["code3"])
+            allCountries[country["code3"]] = {
+                code2: country["code"],
+                name: country["name"]
+            }
+            
+        })
+        function getCountryFlag(countryCode) {
+            //country2emoji works only with 2-letter country code
+            if (countryCode.length == 3) {
+                //convert to 2-letter code
+                countryCode = allCountries[countryCode].code2
+            }
+
+            return country2emoji2(countryCode)
+        }
+
+        function hideNextRoundPanel() {
+            //clear previous neighbours from the screen
+            let neighboursPanel = document.querySelector("#neighbours-panel")
+            while (neighboursPanel.firstChild)
+                neighboursPanel.removeChild(neighboursPanel.firstChild);
+            document.querySelector("#next-round-panel").style.display = "none";
+            document.querySelector("#won").style.display = "none";
+            document.querySelector("#lost").style.display = "none";
+        }
+
+        class Game {
+
+            constructor() {
+                this.score = 0
+                this.round = 1
+                this.playingCountry = null //current country
+                this.countriesPlayed = new Array() //keeps a record of the played countries in the game
+                this.reset()
+                this.newPlayingCountry()
+            }
+
+            //fetches a new country to play
+            newPlayingCountry() {
+                let newCountryCode
+                    //availableCountries contains only countrycodes that have not been played
+                let availableCountries = allCountries.filter((code) => {
+                    return !this.countriesPlayed.includes(code)
+                })
+                availableCountries = shuffleArray(availableCountries);
+                    //start with a random country code
+                newCountryCode = availableCountries[0]
+                //fetch neighbours, true and fake
+                this.playingCountry = new PlayingCountry(newCountryCode)
+                    //asking for a new country to play with. PlayingCountry will make a fetch request to
+                    //restcountries.eu. To do that we invoke the PlayingCountry.init() fuction. 
+                    //When init() finishes, it calls the callback function (our 2nd argument) which concludes the setup of the game
+                this.playingCountry.init(this, function(game) {
+                    //push current playingCountry to history so as not to play it again in this game
+                    game.countriesPlayed.push(game.playingCountry.countryCode)
+                    //check if country has neighbours
+                    if (game.playingCountry.neighbours.length === 0) {
+                        // country has no neighbours, request a new one!
+                        game.newPlayingCountry()
+                        return
+                    }
+                    //shuffle neighbours
+                    //random true or fake neighbours
+                    game.playingCountry.neighbours = shuffleArray(game.playingCountry.neighbours)
+                    //show neighbours of current country on the screen
+                    for (const country of game.playingCountry.neighbours) {
+                        country.show()
+                    }
+                    game.resetProgressBar()
+                    game.playingCountry.show();
+                })
+            }
+
+            //resets to a new game, all history is removed
+            reset() {
+                this.score = 0
+                this.round = 1
+                this.countriesPlayed = new Array()
+                document.querySelector("#score").innerHTML = this.score
+                document.querySelector("#round").innerHTML = this.round
+                document.querySelector("#btn-next-round").disabled = true
+                //clear previous neighbours from the screen
+                hideNextRoundPanel();
+            }
+
+            resetProgressBar() {
+                document.querySelector("#progress").setAttribute("value", 0)
+                document.querySelector("#progress").setAttribute("max",
+                document.querySelectorAll(".neighbour-is-valid").length)
+            }
+
+            // updates score
+            updateScore(correct) {
+                correct ? this.score += 5 : this.score -= 3
+                document.querySelector("#score").innerHTML = this.score
+                document.querySelector("#progress").setAttribute("value", document.querySelectorAll(".neighbour-is-valid").length -
+                        document.querySelectorAll(".neighbour:not(.was-clicked).neighbour-is-valid").length)
+                    //check if there are any neighbour flags left 
+                this.checkFinished()
+
+            }
+
+            // check if there are any available neighbours left to play
+            checkFinished() {
+                    if ((document.querySelectorAll(".neighbour:not(.was-clicked).neighbour-is-valid").length) == 0) {
+                        document.querySelector("#btn-next-round").disabled = false
+                        document.querySelector("#next-round-panel").style.display = "flex";
+                        document.querySelector("#won").style.display = "block";
+                    } else if (
+                        // if invalid clicks are equal to valid countries, you loose
+                        document.querySelectorAll(".neighbour.was-clicked.neighbour-is-invalid").length ==
+                        document.querySelectorAll(".neighbour-is-valid").length) {
+                        document.querySelector("#btn-next-round").disabled = false
+                        document.querySelector("#next-round-panel").style.display = "flex";
+                        document.querySelector("#lost").style.display = "block";
+                    }
+                }
+                // starts a new round
+            nextRound() {
+                // Btn next round can be pressed only if thera are no more flags to guess left
+                document.querySelector("#btn-next-round").disabled = true
+                hideNextRoundPanel()
+                this.resetProgressBar()
+                    // fetch a new country to play
+                this.newPlayingCountry()
+                    // increase round
+                this.round += 1
+                document.querySelector("#round").innerHTML = this.round
+            }
+        }
+
+        class Country {
+            constructor(countryCode) {
+                //get name from list of countries
+                this.countryCode = countryCode // 3-letter code (used by restcountries.eu)
+                this.name = allCountries[countryCode].name //country name
+                this.flag = getCountryFlag(this.countryCode) // emoji for flag
+            }
+        }
+
+        // A neighbour, real or fake, of the current playing country
+        class Neighbour extends Country {
+
+            constructor(countryCode, isValid) {
+                super(countryCode)
+                this.isValid = isValid
+                    //create the element
+                this.createNeighbourElement()
+            }
+
+            //show this element on the panel of neighbours
+            show() {
+                document.querySelector("#neighbours-panel").appendChild(this.createNeighbourElement())
+            }
+
+            createNeighbourElement() {
+                let element = document.createElement("div")
+                element.setAttribute("id", "neighbour-" + this.countryCode)
+                let flagdiv = document.createElement("div")
+                flagdiv.innerHTML = this.flag
+                element.appendChild(flagdiv)
+                let namediv = document.createElement("div")
+                namediv.innerHTML = this.name
+                element.appendChild(namediv)
+
+                element.classList.add("neighbour")
+                    // attach the relevant css class to the element 
+                if (this.isValid) {
+                    element.classList.add("neighbour-is-valid")
+                } else {
+                    element.classList.add("neighbour-is-invalid")
+                }
+
+                return element
+            }
+        }
+
+        //the currently playing country
+        class PlayingCountry extends Country {
+            neighbours = new Array()
+
+            constructor(countryCode) {
+                super(countryCode)
+            }
+
+            //this is tricky, it is needed in order to fetch the neighbouring countries from the restcountries.eu REST API
+            //the Game class first constructs a PlayingCountry, then calls this async method passing a callback
+            //when this method (init) finishes, it calls the callback, so that the initialization continues
+            //arg1 is a refernece to the game object that is just passed back to game (refactor?)
+            //arg2 is the callback function that is called when this init functions finishes
+            init(game, callback) {
+                const url = "https://restcountries.eu/rest/v2/alpha/" + this.countryCode
+                fetch(url)
+                    .then(response => {
+                        if (response.status == 200) {
+                            return response.json();
+                        } else {
+                            throw new Error(response.status);
+                        }
+                    }).then((json) => {
+                        // for each real neighbour we create an new Neighbour object and push
+                        // it in the neighbours array
+                        for (let border in json.borders) {
+                            this.addNeighbour(json.borders[border], true)
+                        }
+                        // we add some fake neighbours
+                        let randomNeighbours = this.getRandomNeighbours(2 * json.borders.length)
+                        for (let countryCode in randomNeighbours) {
+                            this.addNeighbour(randomNeighbours[countryCode], false)
+                        }
+
+                        callback(game)
+                    }).catch((error) => {
+                        console.log(error);
+                    });
+            }
+
+            //add a new neighbour to this playing country
+            addNeighbour(countryCode, isValid) {
+                this.neighbours.push(new Neighbour(countryCode, isValid))
+            }
+
+            //displays the playing country
+            show() {
+                document.querySelector("#my-country-flag").innerHTML = this.flag
+                document.querySelector("#my-country-name").innerHTML = this.name
+            }
+
+            //reuturns an array of country codes that are not neighbours of the playing country
+            getRandomNeighbours(n) {
+                // choose only from the country codes that are not already in the neighbours list
+                // first create a simple array of all neighbour country codes
+                let neighboursCountryCodes = this.neighbours.map(neighbour => neighbour.countryCode)
+                    // push also the current country in this list, to not have it pop as a neighbour!
+                neighboursCountryCodes.push(this.countryCode)
+                    // then create a new array with allcountrycodes minus the neighbour country codes
+
+
+                //availableCodes will contain only countrycodes that are not neighbours
+                let availableCodes = allCountries.filter((code) => !neighboursCountryCodes.includes(code))
+
+                //shuffle this array
+                this.availableCodes = shuffleArray(availableCodes)
+                    //return the last n country codes
+                availableCodes = availableCodes.splice(availableCodes.length - n, n)
+
+                return availableCodes
+            }
+        }
+
+        //shuffle array https://medium.com/@nitinpatel_20236/how-to-shuffle-correctly-shuffle-an-array-in-javascript-15ea3f84bfb
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * i)
+                const temp = array[i]
+                array[i] = array[j]
+                array[j] = temp
+            }
+            return array
+        }
+
+        document.addEventListener("DOMContentLoaded", () => {
+            //start a new Game
+            const game = new Game()
+
+
+            //event listener to new game button
+            document.querySelector("#btn-new-game").addEventListener("click", () => {
+                const confirmPrompt = confirm("Σίγουρα; Θα χάσετε όλο σας το σκορ!");
+                if (confirmPrompt) {
+                    //request a new country
+                    game.newPlayingCountry()
+                        //reset score, round, list of countries already played
+                    game.reset()
+                }
+            })
+
+            //event listener to next round button
+            document.querySelector("#btn-next-round").addEventListener("click", () => {
+                hideNextRoundPanel()
+                game.nextRound()
+            })
+
+            document.querySelector("#neighbours-panel").addEventListener("click", (event) => {
+                //if panels won and lost are not visible then...
+                if (document.querySelector("#won").style.display == "none" &&
+                    document.querySelector("#lost").style.display == "none"){
+                        //get the closest ancestor that is a neighbour
+                    let flagClicked = event.target.closest('.neighbour');
+                    if (flagClicked) {
+                        //if the flag has not been clicked before
+                        if (!flagClicked.classList.contains('was-clicked')) {
+                            //add .was-clicked 
+                            flagClicked.classList.add('was-clicked')
+                            if (flagClicked.classList.contains('neighbour-is-valid')) {
+                                game.updateScore(true)
+                            } else {
+                                game.updateScore(false)
+                            }
+                        }
+                    }
+                }
+            })
+        });
+    </script>
+</head>
+
+<body>
+    <div class="game-panel">
+        <div id="my-country"><span id="my-country-flag"></span><span id="my-country-name"></span></div>
+        <section id="neighbours-panel">
+        </section>
+        <progress id="progress" value="0"></progress>
+        <section id="sidebar">
+            <h3>Βρες τους γείτονες</h3>
+            <div> <span>Γύρος:</span><span id="round">1</span></div>
+            <div> <span>Σκορ:</span><span id="score">0</span></div>
+            <button id="btn-next-round" disabled>Επόμενη χώρα</button>
+            <button id="btn-new-game">Νέο παιχνίδι</button>
+        </section>
+        <div id="next-round-panel">
+            <p id="won">Τους βρήκατε όλους!</p>
+            <p id="lost">Κρίμα, χάσατε!</p>
+        </div>
+    </div>
+</body>
+</html>
